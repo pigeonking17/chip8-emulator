@@ -1,4 +1,4 @@
-use sdl2::{pixels::Color, render::Canvas, video::Window};
+use sdl2::{pixels::Color, render::Canvas, video::Window, rect::{Rect, Point}};
 
 pub struct CPU {
     pub registers: [u8; 16],
@@ -29,11 +29,11 @@ impl CPU {
 
         let mut canvas = window.into_canvas().build().unwrap();
 
-        canvas.set_draw_color(Color::RGB(255, 255, 255));
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
         canvas.present();
 
-        let mut event_pump = sdl_context.event_pump().unwrap();
+        let mut _event_pump = sdl_context.event_pump().unwrap();
 
         loop {
             let opcode = self.read_opcode();
@@ -57,8 +57,51 @@ impl CPU {
                 (0x7, _, _, _) => self.add(x, kk),
                 (0x8, _, _, 0x4) => self.add_xy(x, y),
                 (0xA, _, _, _) => self.set_index(nnn),
+                (0xD, _, _, _) => self.display(x, y, d, &mut canvas),
                 _ => todo!("opcode {:04x}", opcode),
             }
+        }
+    }
+
+    fn display(&mut self, x: u8, y: u8, n: u8, canvas: &mut Canvas<Window>) {
+        let mut xp = self.registers[x as usize] & 63;
+        let mut yp = self.registers[y as usize] & 63;
+        self.registers[0xF] = 0;
+
+        let rect = Rect::new(0, 0, 64, 32);
+        let mut pixels = canvas.read_pixels(rect, sdl2::pixels::PixelFormatEnum::RGB24).unwrap();
+
+        pixels = pixels.into_iter()
+            .map(|pixel| match pixel {
+                0 => 0 as u8,
+                _ => 1 as u8,
+            }).collect::<Vec<u8>>();
+
+        let pixels = pixels.as_slice().chunks(64).collect::<Vec<&[u8]>>();
+
+        'rows: for _ in 0..n {
+            if yp >= 32 {
+                break;
+            }
+            let sprite_row = self.memory[(self.index_register + n as u16) as usize];
+            for j in (0x1..=0xF).step_by(0x1).rev() {
+                if xp >= 64 {
+                    continue 'rows;
+                }
+                match sprite_row & j {
+                    1 => if pixels[yp as usize][xp as usize] == 1 {
+                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+                        canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
+                        self.registers[0xF] = 1;
+                    } else if pixels[yp as usize][xp as usize] == 0 {
+                        canvas.set_draw_color(Color::RGB(255, 255, 255));
+                        canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
+                    },
+                    _ => (),
+                }
+                xp += 1;
+            }
+            yp += 1;
         }
     }
 

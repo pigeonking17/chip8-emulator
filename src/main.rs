@@ -7,6 +7,7 @@ fn main() {
         memory: [0; 4096],
         stack: [0; 16],
         stack_pointer: 0,
+        index_register: 0,
     };
 
     cpu.registers[0] = 5;
