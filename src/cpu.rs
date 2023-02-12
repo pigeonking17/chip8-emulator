@@ -1,9 +1,12 @@
+use sdl2::{pixels::Color, render::Canvas, video::Window};
+
 pub struct CPU {
     pub registers: [u8; 16],
     pub program_counter: usize,
     pub memory: [u8; 0x1000],
     pub stack: [u16; 16],
     pub stack_pointer: usize,
+    pub index_register: u16,
 }
 
 impl CPU {
@@ -16,6 +19,22 @@ impl CPU {
     }
 
     pub fn run(&mut self) {
+        let sdl_context = sdl2::init().unwrap();
+        let video_subsystem = sdl_context.video().unwrap();
+
+        let window = video_subsystem.window("CHIP-8 Emulator", 64, 32)
+            .position_centered()
+            .build()
+            .unwrap();
+
+        let mut canvas = window.into_canvas().build().unwrap();
+
+        canvas.set_draw_color(Color::RGB(255, 255, 255));
+        canvas.clear();
+        canvas.present();
+
+        let mut event_pump = sdl_context.event_pump().unwrap();
+
         loop {
             let opcode = self.read_opcode();
             self.program_counter += 2;
@@ -26,16 +45,38 @@ impl CPU {
             let d = ((opcode & 0x000F) >> 0) as u8;
 
             let nnn = opcode & 0x0FFF;
-            // let kk = (opcode & 0x00FF) as u8;
+            let kk = (opcode & 0x00FF) as u8;
 
             match (c, x, y, d) {
                 (0, 0, 0, 0) => { return; },
+                (0, 0, 0xE, 0) => self.clear(&mut canvas),
                 (0, 0, 0xE, 0xE) => self.ret(),
+                (0x1, _, _, _) => self.jump(nnn),
                 (0x2, _, _, _) => self.call(nnn),
+                (0x6, _, _, _) => self.set(x, kk),
+                (0x7, _, _, _) => self.add(x, kk),
                 (0x8, _, _, 0x4) => self.add_xy(x, y),
+                (0xA, _, _, _) => self.set_index(nnn),
                 _ => todo!("opcode {:04x}", opcode),
             }
         }
+    }
+
+    fn set_index(&mut self, nnn: u16) {
+        self.index_register = nnn;
+    }
+
+    fn add(&mut self, x: u8, kk: u8) {
+        let val = self.registers[x as usize];
+        
+        match val.checked_add(kk) {
+            Some(val) => self.registers[x as usize] = val,
+            None => self.registers[x as usize] = 255 as u8,
+        }
+    }
+
+    fn set(&mut self, x: u8, kk: u8) {
+        self.registers[x as usize] = kk;
     }
 
 	fn call(&mut self, addr: u16) {
@@ -61,6 +102,13 @@ impl CPU {
         self.program_counter = addr as usize;
     }
 
+    fn clear(&mut self, canvas: &mut Canvas<Window>) {
+        canvas.clear();
+    }
+
+    fn jump(&mut self, addr: u16) {
+        self.program_counter = addr as usize;
+    }
 
     fn add_xy(&mut self, x: u8, y: u8) {
         let arg1 = self.registers[x as usize];
