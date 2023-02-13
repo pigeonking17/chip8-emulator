@@ -22,20 +22,28 @@ impl CPU {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("CHIP-8 Emulator", 64, 32)
+        let window = video_subsystem.window("CHIP-8 Emulator", 64*8, 32*8)
             .position_centered()
             .build()
             .unwrap();
 
         let mut canvas = window.into_canvas().build().unwrap();
+        canvas.set_scale(8.0, 8.0).unwrap();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
         canvas.present();
 
-        let mut _event_pump = sdl_context.event_pump().unwrap();
+        let mut event_pump = sdl_context.event_pump().unwrap();
 
-        loop {
+        'running: loop {
+            for event in event_pump.poll_iter() {
+                match event {
+                    sdl2::event::Event::Quit {..} => break 'running,
+                    _ => {},
+                }
+            }
+
             let opcode = self.read_opcode();
             self.program_counter += 2;
 
@@ -84,12 +92,13 @@ impl CPU {
                 break;
             }
             let sprite_row = self.memory[(self.index_register + n as u16) as usize];
-            for j in (0x1..=0xF).step_by(0x1).rev() {
+            for j in 0..8 {
                 if xp >= 64 {
                     continue 'rows;
                 }
-                match sprite_row & j {
-                    1 => if pixels[yp as usize][xp as usize] == 1 {
+                let mask = 1 << j;
+                match sprite_row & mask {
+                    1|2|4|8|16|32|64|128 => if pixels[yp as usize][xp as usize] == 1 {
                         canvas.set_draw_color(Color::RGB(0, 0, 0));
                         canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
                         self.registers[0xF] = 1;
@@ -103,6 +112,7 @@ impl CPU {
             }
             yp += 1;
         }
+        canvas.present();
     }
 
     fn set_index(&mut self, nnn: u16) {
