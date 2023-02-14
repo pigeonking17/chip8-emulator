@@ -22,13 +22,13 @@ impl CPU {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("CHIP-8 Emulator", 64*10, 32*10)
+        let window = video_subsystem.window("CHIP-8 Emulator", 64*13, 32*13)
             .position_centered()
             .build()
             .unwrap();
 
         let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_scale(10.0, 10.0).unwrap();
+        canvas.set_scale(13.0, 13.0).unwrap();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
