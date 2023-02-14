@@ -3,8 +3,8 @@ use std::{fs, path::Path};
 mod cpu;
 
 fn main() {
-    let program = fs::read(Path::new("ibm-logo.ch8")).unwrap();
-    
+    let program = fs::read(Path::new("ibm.ch8")).unwrap();
+
     let font: [u8; 80] = [
 		0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
 		0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -33,8 +33,6 @@ fn main() {
     for (i, byte) in program.iter().enumerate() {
         memory[i + 0x200] = *byte;
     }
-
-    println!("{:?}", memory);
 
     let mut cpu = cpu::CPU {
         registers: [0; 16],

@@ -22,13 +22,13 @@ impl CPU {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("CHIP-8 Emulator", 64*8, 32*8)
+        let window = video_subsystem.window("CHIP-8 Emulator", 64*10, 32*10)
             .position_centered()
             .build()
             .unwrap();
 
         let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_scale(8.0, 8.0).unwrap();
+        canvas.set_scale(10.0, 10.0).unwrap();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
@@ -87,16 +87,18 @@ impl CPU {
 
         let pixels = pixels.as_slice().chunks(64).collect::<Vec<&[u8]>>();
 
-        'rows: for _ in 0..n {
+        'rows: for row in 0..n {
             if yp >= 32 {
                 break;
             }
-            let sprite_row = self.memory[(self.index_register + n as u16) as usize];
+            
+            let sprite_row = self.memory[(self.index_register + row as u16) as usize];
+            
             for j in 0..8 {
                 if xp >= 64 {
                     continue 'rows;
                 }
-                let mask = 1 << j;
+                let mask = 0x80 >> j;
                 match sprite_row & mask {
                     1|2|4|8|16|32|64|128 => if pixels[yp as usize][xp as usize] == 1 {
                         canvas.set_draw_color(Color::RGB(0, 0, 0));
@@ -110,6 +112,7 @@ impl CPU {
                 }
                 xp += 1;
             }
+            xp -= 8;
             yp += 1;
         }
         canvas.present();
@@ -121,9 +124,9 @@ impl CPU {
 
     fn add(&mut self, x: u8, kk: u8) {
         let val = self.registers[x as usize];
-        
+
         match val.checked_add(kk) {
-            Some(val) => self.registers[x as usize] = val,
+            Some(value) => self.registers[x as usize] = value,
             None => self.registers[x as usize] = 255 as u8,
         }
     }
@@ -132,12 +135,12 @@ impl CPU {
         self.registers[x as usize] = kk;
     }
 
-	fn call(&mut self, addr: u16) {
-    	let sp = self.stack_pointer;
+    fn call(&mut self, addr: u16) {
+        let sp = self.stack_pointer;
         let stack = &mut self.stack;
 
         if sp >= stack.len() {
-          panic!("Stack overflow!")
+            panic!("Stack overflow!")
         }
 
         stack[sp] = self.program_counter as u16;
