@@ -1,9 +1,24 @@
-use std::{fs, path::Path};
+use std::{fs, path::PathBuf};
+use clap::{Parser};
 
 mod cpu;
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, value_name = "FILE")]
+    program: PathBuf,
+}
+
 fn main() {
-    let program = fs::read(Path::new("ibm.ch8")).unwrap();
+    let cli = Cli::parse();
+    let program_buf = cli.program;
+
+    if program_buf.extension().unwrap() != "ch8" {
+        panic!("Please provide a .ch8 file.");
+    }
+
+    let program = fs::read(program_buf).unwrap();
 
     let font: [u8; 80] = [
 		0xF0, 0x90, 0x90, 0x90, 0xF0, // 0

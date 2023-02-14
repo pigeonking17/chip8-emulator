@@ -78,7 +78,7 @@ impl CPU {
                 (0x9, _, _, 0) => self.skip_nequal(x, y),
                 (0xA, _, _, _) => self.set_index(nnn),
                 (0xD, _, _, _) => self.display(x, y, d, &mut canvas),
-                _ => todo!("opcode {:04x}", opcode),
+                _ => () //todo!("opcode {:04x}", opcode),
             }
         }
     }
@@ -227,7 +227,7 @@ impl CPU {
 
         match val.checked_add(kk) {
             Some(value) => self.registers[x as usize] = value,
-            None => self.registers[x as usize] = 255 as u8,
+            None => self.registers[x as usize] -= 1,
         }
     }
 
