@@ -61,13 +61,113 @@ impl CPU {
                 (0, 0, 0xE, 0xE) => self.ret(),
                 (0x1, _, _, _) => self.jump(nnn),
                 (0x2, _, _, _) => self.call(nnn),
+                (0x3, _, _, _) => self.skip_x_equal(x, kk),
+                (0x4, _, _, _) => self.skip_x_nequal(x, kk),
+                (0x5, _, _, 0) => self.skip_equal(x, y),
                 (0x6, _, _, _) => self.set(x, kk),
                 (0x7, _, _, _) => self.add(x, kk),
+                (0x8, _, _, 0) => self.set_xy(x, y),
+                (0x8, _, _, 0x1) => self.bitwise_or(x, y),
+                (0x8, _, _, 0x2) => self.bitwise_and(x, y),
+                (0x8, _, _, 0x3) => self.bitwise_xor(x, y),
                 (0x8, _, _, 0x4) => self.add_xy(x, y),
+                (0x8, _, _, 0x5) => self.sub_xy(x, y),
+                (0x8, _, _, 0x6) => self.shift_right(x),
+                (0x8, _, _, 0x7) => self.sub_yx(x, y),
+                (0x8, _, _, 0xE) => self.shift_left(x),
+                (0x9, _, _, 0) => self.skip_nequal(x, y),
                 (0xA, _, _, _) => self.set_index(nnn),
                 (0xD, _, _, _) => self.display(x, y, d, &mut canvas),
                 _ => todo!("opcode {:04x}", opcode),
             }
+        }
+    }
+
+    fn shift_left(&mut self, x: u8) {
+        if self.registers[x as usize] & 0x80 == 0x80 {
+            self.registers[0xF] = 1;
+        } else {
+            self.registers[0xF] = 0;
+        }
+
+        self.registers[x as usize] <<= 1;
+    }
+
+    fn shift_right(&mut self, x: u8) {
+        if self.registers[x as usize] & 0x1 == 0x1 {
+            self.registers[0xF] = 1;
+        } else {
+            self.registers[0xF] = 0;
+        }
+
+        self.registers[x as usize] >>= 1;
+    }
+
+    fn sub_yx(&mut self, x: u8, y: u8) {
+        let arg1 = self.registers[x as usize];
+        let arg2 = self.registers[y as usize];
+
+        let (val, overflow) = arg2.overflowing_sub(arg1);
+        self.registers[x as usize] = val;
+
+        if overflow {
+            self.registers[0xF] = 0;
+        } else {
+            self.registers[0xF] = 1;
+        }
+    }
+
+    fn sub_xy(&mut self, x: u8, y: u8) {
+        let arg1 = self.registers[x as usize];
+        let arg2 = self.registers[y as usize];
+        
+        let (val, overflow) = arg1.overflowing_sub(arg2);
+        self.registers[x as usize] = val;
+
+        if overflow {
+            self.registers[0xF] = 0;
+        } else {
+            self.registers[0xF] = 1;
+        }
+    }
+
+    fn set_xy(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[y as usize];
+    }
+
+    fn bitwise_or(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] |= self.registers[y as usize];
+    }
+
+    fn bitwise_and(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] &= self.registers[y as usize];
+    }
+
+    fn bitwise_xor(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] ^= self.registers[y as usize];
+    }
+
+    fn skip_nequal(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] != self.registers[y as usize] {
+            self.program_counter += 2;
+        }
+    }
+
+    fn skip_equal(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] == self.registers[y as usize] {
+            self.program_counter += 2;
+        }
+    }
+
+    fn skip_x_nequal(&mut self, x: u8, kk: u8) {
+        if self.registers[x as usize] != kk {
+            self.program_counter += 2;
+        }
+    }
+
+    fn skip_x_equal(&mut self, x: u8, kk: u8) {
+        if self.registers[x as usize] == kk {
+            self.program_counter += 2;
         }
     }
 
