@@ -1,4 +1,5 @@
-use sdl2::{pixels::Color, render::Canvas, video::Window, rect::{Rect, Point}};
+use sdl2::{pixels::Color, render::Canvas, video::Window, rect::{Rect, Point}, EventPump, keyboard::Keycode, event::Event};
+use rand::Rng;
 
 pub struct CPU {
     pub registers: [u8; 16],
@@ -77,10 +78,75 @@ impl CPU {
                 (0x8, _, _, 0xE) => self.shift_left(x),
                 (0x9, _, _, 0) => self.skip_nequal(x, y),
                 (0xA, _, _, _) => self.set_index(nnn),
+                (0xB, _, _, _) => self.jump_offset(nnn),
+                (0xC, _, _, _) => self.random(x, kk),
                 (0xD, _, _, _) => self.display(x, y, d, &mut canvas),
+                (0xE, _, 0x9, 0xE) => self.skip_key_pressed(x, &mut event_pump),
+                (0xE, _, 0xA, 0x1) => self.skip_key_npressed(x, &mut event_pump),
                 _ => () //todo!("opcode {:04x}", opcode),
             }
         }
+    }
+
+    fn skip_key_npressed(&mut self, x: u8, event_pump: &mut EventPump) {
+        let key = self.get_depressed_key(event_pump);
+
+        match key {
+            Some(value) => {
+                if self.registers[x as usize] != value {
+                    self.program_counter += 2;
+                }
+            }
+            None => (),
+        }
+    }
+
+    fn skip_key_pressed(&mut self, x: u8, event_pump: &mut EventPump) {
+        let key = self.get_depressed_key(event_pump);
+
+        match key {
+            Some(value) => {
+                if self.registers[x as usize] == value {
+                    self.program_counter += 2;
+                }
+            },
+            None => (),
+        }
+    }
+
+    fn get_depressed_key(&mut self, event_pump: &mut EventPump) -> Option<u8> {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::KeyDown{ keycode: Some(Keycode::Num1), repeat: false, .. } => { return Some(0x1); },
+                Event::KeyDown{ keycode: Some(Keycode::Num2), repeat: false, .. } => { return Some(0x2); },
+                Event::KeyDown{ keycode: Some(Keycode::Num3), repeat: false, .. } => { return Some(0x3); },
+                Event::KeyDown{ keycode: Some(Keycode::Num4), repeat: false, .. } => { return Some(0xC); },
+                Event::KeyDown{ keycode: Some(Keycode::Q), repeat: false, .. } => { return Some(0x4); },
+                Event::KeyDown{ keycode: Some(Keycode::W), repeat: false, .. } => { return Some(0x5); },
+                Event::KeyDown{ keycode: Some(Keycode::E), repeat: false, .. } => { return Some(0x6); },
+                Event::KeyDown{ keycode: Some(Keycode::R), repeat: false, .. } => { return Some(0xD); },
+                Event::KeyDown{ keycode: Some(Keycode::A), repeat: false, .. } => { return Some(0x7); },
+                Event::KeyDown{ keycode: Some(Keycode::S), repeat: false, .. } => { return Some(0x8); },
+                Event::KeyDown{ keycode: Some(Keycode::D), repeat: false, .. } => { return Some(0x9); },
+                Event::KeyDown{ keycode: Some(Keycode::F), repeat: false, .. } => { return Some(0xE); },
+                Event::KeyDown{ keycode: Some(Keycode::Z), repeat: false, .. } => { return Some(0xA); },
+                Event::KeyDown{ keycode: Some(Keycode::X), repeat: false, .. } => { return Some(0x0); },
+                Event::KeyDown{ keycode: Some(Keycode::C), repeat: false, .. } => { return Some(0xB); },
+                Event::KeyDown{ keycode: Some(Keycode::V), repeat: false, .. } => { return Some(0xF); },
+                _ => { return None; }
+            }
+        }
+        return None;
+    }
+
+    fn random(&mut self, x: u8, kk: u8) {
+        let random = rand::thread_rng().gen_range(0..u8::MAX);
+        self.registers[x as usize] = random & kk;
+    }
+
+    fn jump_offset(&mut self, nnn: u16) {
+        let offset = self.registers[0];
+        self.program_counter = (nnn + offset as u16) as usize;
     }
 
     fn shift_left(&mut self, x: u8) {
