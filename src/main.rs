@@ -1,8 +1,11 @@
+// std::fs used to read the program file.
 use std::{fs, path::PathBuf};
-use clap::{Parser};
+// clap library used to parse command line arguments.
+use clap::Parser;
 
 mod cpu;
 
+/// Allows for programs to be selected from the command line.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -10,16 +13,22 @@ struct Cli {
     program: PathBuf,
 }
 
+/// Parses the cli arguments, reads the program into bytes, assembles the memory with the font,
+/// program, and correct spacing, initates the cpu loop.
 fn main() {
+    // Read the value of the program flag.
     let cli = Cli::parse();
     let program_buf = cli.program;
 
+    // Check that the file provided is a CHIP-8 program.
     if program_buf.extension().unwrap() != "ch8" {
         panic!("Please provide a .ch8 file.");
     }
 
+    // Reads the file into a vector of bytes.
     let program = fs::read(program_buf).unwrap();
 
+    // Contains the font sprites that are used by some programs.
     let font: [u8; 80] = [
 		0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
 		0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -39,16 +48,20 @@ fn main() {
 		0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 	];
 
+    // Initialises and empty memory that is 4kiB in length.
     let mut memory = [0 as u8; 4096];
 
+    // Insert the font into memory.
     for (i, byte) in font.iter().enumerate() {
         memory[i] = *byte;
     }
 
+    // Insert the program into memory at 0x200.
     for (i, byte) in program.iter().enumerate() {
         memory[i + 0x200] = *byte;
     }
 
+    // Creates an empty cpu with the program and font loaded into memory.
     let mut cpu = cpu::CPU {
         registers: [0; 16],
         program_counter: 0x200,
@@ -58,5 +71,6 @@ fn main() {
         index_register: 0,
     };
 
+    // Starts the cpu.
     cpu.run();
 }

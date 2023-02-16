@@ -1,43 +1,52 @@
+// SDL2 library used to display the pixels and read keyboard events.
 use sdl2::{pixels::Color, render::Canvas, video::Window, rect::{Rect, Point}, EventPump, keyboard::Keycode, event::Event};
+// rand library used to generate a random number for 0xCxkk.
 use rand::Rng;
 
+/// Data structure that holds the current state of the cpu.
 pub struct CPU {
+    /// 16 one-byte registers that are available for use by the program.
     pub registers: [u8; 16],
+    /// Holds the current location in memory.
     pub program_counter: usize,
+    /// 4kiB of memory that holds the proram and the font.
     pub memory: [u8; 0x1000],
+    /// 16-address stack, allows for 16 nested subroutines.
     pub stack: [u16; 16],
+    /// Holds the location of the most recent address added to the stack.
     pub stack_pointer: usize,
+    /// A register that holds an address that often points to a sprite.
     pub index_register: u16,
 }
 
 impl CPU {
-    fn read_opcode(&self) -> u16 {
-        let p = self.program_counter;
-        let op_byte1 = self.memory[p] as u16;
-        let op_byte2 = self.memory[p + 1] as u16;
-
-        op_byte1 << 8 | op_byte2
-    }
-
+    /// Initialises the window and containes the main cpu loop.
     pub fn run(&mut self) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("CHIP-8 Emulator", 64*13, 32*13)
+        // Generates a window that is 960 px by 480 px.
+        let window = video_subsystem.window("CHIP-8 Emulator", 64*15, 32*15)
             .position_centered()
             .build()
             .unwrap();
 
+        // The canvas, this is where the pixels are drawn.
         let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_scale(13.0, 13.0).unwrap();
+        // Increase the scale so that the pixels are visible.
+        canvas.set_scale(15.0, 15.0).unwrap();
 
+        // Sets the colour to black, fills the screen and presents it.
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
         canvas.present();
 
+        // This is used to detect keypresses, button presses, etc.
         let mut event_pump = sdl_context.event_pump().unwrap();
 
+        // Main cpu loop.
         'running: loop {
+            // Allows the window to be closed.
             for event in event_pump.poll_iter() {
                 match event {
                     sdl2::event::Event::Quit {..} => break 'running,
@@ -45,9 +54,12 @@ impl CPU {
                 }
             }
 
+            // Get the current opcode.
             let opcode = self.read_opcode();
+            // Increment the PC to the next instruction.
             self.program_counter += 2;
 
+            // Splits the opcode into 6 different parts. 0xcxyd, 0x_nnn, and 0x__kk.
             let c = ((opcode & 0xF000) >> 12) as u8;
             let x = ((opcode & 0x0F00) >> 8) as u8;
             let y = ((opcode & 0x00F0) >> 4) as u8;
@@ -56,6 +68,7 @@ impl CPU {
             let nnn = opcode & 0x0FFF;
             let kk = (opcode & 0x00FF) as u8;
 
+            // Decide what to do based on the opcode.
             match (c, x, y, d) {
                 (0, 0, 0, 0) => { return; },
                 (0, 0, 0xE, 0) => self.clear(&mut canvas),
@@ -88,6 +101,17 @@ impl CPU {
         }
     }
 
+    /// Reads the current two-byte opcode using the PC and memory.
+    fn read_opcode(&self) -> u16 {
+        let p = self.program_counter;
+        let op_byte1 = self.memory[p] as u16;
+        let op_byte2 = self.memory[p + 1] as u16;
+
+        // Small hack to merge the two bytes in memory.
+        op_byte1 << 8 | op_byte2
+    }
+
+    /// Skips to the next instruction if the key in Vx is not pressed.
     fn skip_key_npressed(&mut self, x: u8, event_pump: &mut EventPump) {
         let key = self.get_depressed_key(event_pump);
 
@@ -101,6 +125,7 @@ impl CPU {
         }
     }
 
+    /// Skips to the next instruction if the key in Vx is pressed.
     fn skip_key_pressed(&mut self, x: u8, event_pump: &mut EventPump) {
         let key = self.get_depressed_key(event_pump);
 
@@ -114,6 +139,8 @@ impl CPU {
         }
     }
 
+    /// Function to get any keys that are currently being pressed. Mimics the old 16-key keyboard
+    /// that CHIP-8 programs use.
     fn get_depressed_key(&mut self, event_pump: &mut EventPump) -> Option<u8> {
         for event in event_pump.poll_iter() {
             match event {
@@ -139,16 +166,19 @@ impl CPU {
         return None;
     }
 
+    /// Generates a random u8, bitwise ands it with kk and then stores it in Vx.
     fn random(&mut self, x: u8, kk: u8) {
         let random = rand::thread_rng().gen_range(0..u8::MAX);
         self.registers[x as usize] = random & kk;
     }
 
+    /// Jumps a to an instruction offset by the value of Vx. This allows for decision tables.
     fn jump_offset(&mut self, nnn: u16) {
         let offset = self.registers[0];
         self.program_counter = (nnn + offset as u16) as usize;
     }
 
+    /// Shifts Vx left once. Sets VF to 1 if there is an overflow.
     fn shift_left(&mut self, x: u8) {
         if self.registers[x as usize] & 0x80 == 0x80 {
             self.registers[0xF] = 1;
@@ -159,6 +189,7 @@ impl CPU {
         self.registers[x as usize] <<= 1;
     }
 
+    /// Shifts Vx right once. Sets VF to 1 if there is an overflow.
     fn shift_right(&mut self, x: u8) {
         if self.registers[x as usize] & 0x1 == 0x1 {
             self.registers[0xF] = 1;
@@ -169,6 +200,8 @@ impl CPU {
         self.registers[x as usize] >>= 1;
     }
 
+    /// Subtracts Vx from Vy and puts the result in Vx. 
+    /// Sets VF to 0 if there is an overflow, otherwise it is set to 1.
     fn sub_yx(&mut self, x: u8, y: u8) {
         let arg1 = self.registers[x as usize];
         let arg2 = self.registers[y as usize];
@@ -183,10 +216,12 @@ impl CPU {
         }
     }
 
+    /// Subtracts Vy from Vx and puts the value in Vx.
+    /// Sets VF to 0 if there is an overflow, otherwise it is set to 1.
     fn sub_xy(&mut self, x: u8, y: u8) {
         let arg1 = self.registers[x as usize];
         let arg2 = self.registers[y as usize];
-        
+
         let (val, overflow) = arg1.overflowing_sub(arg2);
         self.registers[x as usize] = val;
 
@@ -197,54 +232,68 @@ impl CPU {
         }
     }
 
+    /// Sets to Vx to Vy.
     fn set_xy(&mut self, x: u8, y: u8) {
         self.registers[x as usize] = self.registers[y as usize];
     }
 
+    /// Puts the result of Vx OR Vy into Vx.
     fn bitwise_or(&mut self, x: u8, y: u8) {
         self.registers[x as usize] |= self.registers[y as usize];
     }
 
+    /// Putes the value of Vx AND Vy into Vx.
     fn bitwise_and(&mut self, x: u8, y: u8) {
         self.registers[x as usize] &= self.registers[y as usize];
     }
 
+    /// Puts the value of Vx XOR Vy into Vx.
     fn bitwise_xor(&mut self, x: u8, y: u8) {
         self.registers[x as usize] ^= self.registers[y as usize];
     }
 
+    /// Skips to the next instruction if Vx and Vy are not equal.
     fn skip_nequal(&mut self, x: u8, y: u8) {
         if self.registers[x as usize] != self.registers[y as usize] {
             self.program_counter += 2;
         }
     }
 
+    /// Skips to the next instruction if Vx and Vy are equal.
     fn skip_equal(&mut self, x: u8, y: u8) {
         if self.registers[x as usize] == self.registers[y as usize] {
             self.program_counter += 2;
         }
     }
 
+    /// Skips to the next instruction if Vx is not equal to kk.
     fn skip_x_nequal(&mut self, x: u8, kk: u8) {
         if self.registers[x as usize] != kk {
             self.program_counter += 2;
         }
     }
 
+    /// Skips to the next instruction if Vx is equal to kk.
     fn skip_x_equal(&mut self, x: u8, kk: u8) {
         if self.registers[x as usize] == kk {
             self.program_counter += 2;
         }
     }
 
+    /// Displays a sprite found in memory at the index register.
+    /// The sprite is n rows tall and is displayed at (Vx, Vy).
     fn display(&mut self, x: u8, y: u8, n: u8, canvas: &mut Canvas<Window>) {
-        let mut xp = self.registers[x as usize] & 63;
-        let mut yp = self.registers[y as usize] & 63;
+        // Gets the coordinates to display the sprite.
+        let mut xp = self.registers[x as usize];
+        let mut yp = self.registers[y as usize];
         self.registers[0xF] = 0;
 
+        // Gets the current pixels on the screen, this is because displaying new pixels requires
+        // knowing what is currently at that point.
         let rect = Rect::new(0, 0, 64, 32);
         let mut pixels = canvas.read_pixels(rect, sdl2::pixels::PixelFormatEnum::RGB24).unwrap();
 
+        // Turns the pixels from complicated RBG numbers into simple on/off.
         pixels = pixels.into_iter()
             .map(|pixel| match pixel {
                 0 => 0 as u8,
@@ -253,55 +302,77 @@ impl CPU {
 
         let pixels = pixels.as_slice().chunks(64).collect::<Vec<&[u8]>>();
 
+        // Progressivley display each row, starting at the top.
         'rows: for row in 0..n {
+            // If the bottom of the screen is reached then stop.
             if yp >= 32 {
                 break;
             }
-            
+
+            // Get the sprite row to display. Each bit in the byte means to flip the current value
+            // of the pixel in its place. For example, if the bit is a 1 and the pixel is currently
+            // on, then it gets turned off. If the bit is 0, the pixel is not changed.
             let sprite_row = self.memory[(self.index_register + row as u16) as usize];
-            
+
+            // Iterate over each bit in the byte.
             for j in 0..8 {
+                // Stops if the end of the screen is reached.
                 if xp >= 64 {
                     continue 'rows;
                 }
+                // Use a bit mask to grab the bit we want.
                 let mask = 0x80 >> j;
                 match sprite_row & mask {
-                    1|2|4|8|16|32|64|128 => if pixels[yp as usize][xp as usize] == 1 {
+                    // Matches if the bit we want is 1.
+                    1|2|4|8|16|32|64|128 =>
+                    // If it the pixel is on, turn it off.
+                    if pixels[yp as usize][xp as usize] == 1 {
                         canvas.set_draw_color(Color::RGB(0, 0, 0));
                         canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
                         self.registers[0xF] = 1;
+                    // Else if it is off then turn it on.
                     } else if pixels[yp as usize][xp as usize] == 0 {
                         canvas.set_draw_color(Color::RGB(255, 255, 255));
                         canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
                     },
+                    // Do nothing if the bit is 0.
                     _ => (),
                 }
+                // Move over one.
                 xp += 1;
             }
+            // Go back to the start of the row and go down one row.
             xp -= 8;
             yp += 1;
         }
+        // Displays the canvas.
         canvas.present();
     }
 
+    /// Set the index register to nnn.
     fn set_index(&mut self, nnn: u16) {
         self.index_register = nnn;
     }
 
+    /// Adds kk to Vx. Does not affect VF if thers is an overflow.
     fn add(&mut self, x: u8, kk: u8) {
         let val = self.registers[x as usize];
 
         match val.checked_add(kk) {
             Some(value) => self.registers[x as usize] = value,
+            // If an overflow occurs, then set it to it's previous value minus one.
             None => self.registers[x as usize] -= 1,
         }
     }
 
+    /// Sets Vx to kk.
     fn set(&mut self, x: u8, kk: u8) {
         self.registers[x as usize] = kk;
     }
 
-    fn call(&mut self, addr: u16) {
+    /// Changes the PC to nnn and stores the prevoius value on the stack to return to it later.
+    /// Panics if the stack is full.
+    fn call(&mut self, nnn: u16) {
         let sp = self.stack_pointer;
         let stack = &mut self.stack;
 
@@ -311,9 +382,11 @@ impl CPU {
 
         stack[sp] = self.program_counter as u16;
         self.stack_pointer += 1;
-        self.program_counter = addr as usize;
+        self.program_counter = nnn as usize;
     }
 
+    /// Pops an instruction from stack and set the PC to it.
+    /// Panics if the stack is empty.
     fn ret(&mut self) {
         if self.stack_pointer == 0 {
           panic!("Stack underflow");
@@ -324,14 +397,17 @@ impl CPU {
         self.program_counter = addr as usize;
     }
 
+    /// Clears the screen.
     fn clear(&mut self, canvas: &mut Canvas<Window>) {
         canvas.clear();
     }
 
-    fn jump(&mut self, addr: u16) {
-        self.program_counter = addr as usize;
+    /// Sets the PC to nnn.
+    fn jump(&mut self, nnn: u16) {
+        self.program_counter = nnn as usize;
     }
 
+    /// Adds Vx and Vy and stores the value in Vx. Sets VF to 1 if overflow occurs.
     fn add_xy(&mut self, x: u8, y: u8) {
         let arg1 = self.registers[x as usize];
         let arg2 = self.registers[y as usize];
