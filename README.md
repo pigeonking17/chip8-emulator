@@ -1,6 +1,6 @@
 ## CHIP-8 Emulator
 
-[![forthebadge](https://forthebadge.com/images/badges/made-with-rust.svg])(https://forthebadge.com)
+[![forthebadge](http://forthebadge.com/images/badges/made-with-rust.svg)](http://forthebadge.com)
 
 A CHIP-8 emulator that has been written in Rust. This is still a work in progress and as such is missing many features.
 
