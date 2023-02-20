@@ -1,12 +1,11 @@
+// SDL2 library used to display the pixels and read keyboard events.
+use sdl2::{pixels::Color, render::Canvas, video::Window, rect::{Rect, Point}, EventPump, keyboard::Keycode, event::Event, surface::{self, Surface}};
 // rand library used to generate a random number for 0xCxkk.
 use rand::Rng;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::{sleep, interval};
-use minifb::{Window, WindowOptions, Scale, Key};
-
-const WIDTH: usize = 64;
-const HEIGHT: usize = 32;
 
 /// Data structure that holds the current state of the cpu.
 pub struct CPU {
@@ -28,26 +27,40 @@ pub struct CPU {
 impl CPU {
     /// Initialises the window and containes the main cpu loop.
     pub async fn run(&mut self) {
-        let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
+        let sdl_context = sdl2::init().unwrap();
+        let video_subsystem = sdl_context.video().unwrap();
 
-        let mut options = WindowOptions::default();
-        options.scale = Scale::X16;
+        // Generates a window that is 960 px by 480 px.
+        let window = video_subsystem.window("CHIP-8 Emulator", 64*15, 32*15)
+           .position_centered()
+           .build()
+           .unwrap();
 
-        let mut window = Window::new(
-            "CHIP-8 Emulator", 
-            WIDTH,
-            HEIGHT,
-            options,
-        ).unwrap();
+        // The canvas, this is where the pixels are drawn.
+        let mut canvas = window.into_canvas().build().unwrap();
+        
+        // Increase the scale so that the pixels are visible.
+        canvas.set_scale(15.0, 15.0).unwrap();
 
-        window.limit_update_rate(Some(Duration::from_micros(16600)));
+        // Sets the colour to black, fills the screen and presents it.
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.clear();
+        canvas.present();
 
+        // This is used to detect keypresses, button presses, etc.
+        let mut event_pump = sdl_context.event_pump().unwrap();
+
+        let should_exit = AtomicBool::new(false);
         let mut decrement_future;
 
         // Main cpu loop.
         'running: loop {
-            if window.is_key_down(Key::Escape) {
-                break 'running;
+            // Allows the window to be closed.
+            for event in event_pump.poll_iter() {
+                match event {
+                    sdl2::event::Event::Quit {..} => break 'running,
+                    _ => {},
+                }
             }
 
             // Get the current opcode.
@@ -67,7 +80,7 @@ impl CPU {
             // Decide what to do based on the opcode.
             match (c, x, y, d) {
                 (0, 0, 0, 0) => { return; },
-                (0, 0, 0xE, 0) => self.clear(&mut window),
+                (0, 0, 0xE, 0) => self.clear(&mut canvas),
                 (0, 0, 0xE, 0xE) => self.ret(),
                 (0x1, _, _, _) => self.jump(nnn),
                 (0x2, _, _, _) => self.call(nnn),
@@ -89,14 +102,14 @@ impl CPU {
                 (0xA, _, _, _) => self.set_index(nnn),
                 (0xB, _, _, _) => self.jump_offset(nnn),
                 (0xC, _, _, _) => self.random(x, kk),
-                (0xD, _, _, _) => self.display(x, y, d, &mut window, &mut buffer),
-                (0xE, _, 0x9, 0xE) => self.skip_key_pressed(x, &mut window),
-                (0xE, _, 0xA, 0x1) => self.skip_key_npressed(x, &mut window),
+                (0xD, _, _, _) => self.display(x, y, d, &mut canvas),
+                (0xE, _, 0x9, 0xE) => self.skip_key_pressed(x, &mut event_pump),
+                (0xE, _, 0xA, 0x1) => self.skip_key_npressed(x, &mut event_pump),
                 (0xF, _, 0, 0x7) => decrement_future = &self.set_timer(x),
                 (0xF, _, 0x1, 0x5) => self.read_timer(x),
                 (0xF, _, 0x1, 0x8) => (),
                 (0xF, _, 0x1, 0xE) => self.add_to_index(x),
-                (0xF, _, 0, 0xA) => self.get_key(x, &mut window),
+                (0xF, _, 0, 0xA) => self.get_key(x, &mut event_pump),
                 (0xF, _, 0x2, 0x9) => self.font(x),
                 (0xF, _, 0x3, 0x3) => self.decimal(x),
                 (0xF, _, 0x5, 0x5) => self.store_memory(x),
@@ -136,8 +149,8 @@ impl CPU {
         self.index_register = (font_char * 5) as u16;
     }
 
-    fn get_key(&mut self, x: u8, window: &mut Window) {
-        if let Some(key) = self.get_depressed_key(window) {
+    fn get_key(&mut self, x: u8, event_pump: &mut EventPump) {
+        if let Some(key) = self.get_depressed_key(event_pump) {
             self.registers[x as usize] = key;
         } else {
             self.program_counter -= 2;
@@ -184,8 +197,8 @@ impl CPU {
     }
 
     /// Skips to the next instruction if the key in Vx is not pressed.
-    fn skip_key_npressed(&mut self, x: u8, window: &mut Window) {
-        let key = self.get_depressed_key(window);
+    fn skip_key_npressed(&mut self, x: u8, event_pump: &mut EventPump) {
+        let key = self.get_depressed_key(event_pump);
 
         match key {
             Some(value) => {
@@ -198,8 +211,8 @@ impl CPU {
     }
 
     /// Skips to the next instruction if the key in Vx is pressed.
-    fn skip_key_pressed(&mut self, x: u8, window: &mut Window) {
-        let key = self.get_depressed_key(window);
+    fn skip_key_pressed(&mut self, x: u8, event_pump: &mut EventPump) {
+        let key = self.get_depressed_key(event_pump);
 
         match key {
             Some(value) => {
@@ -213,30 +226,29 @@ impl CPU {
 
     /// Function to get any keys that are currently being pressed. Mimics the old 16-key keyboard
     /// that CHIP-8 programs use.
-    fn get_depressed_key(&mut self, window: &mut Window) -> Option<u8> {
-        let mut keycode: Option<u8> = None;
-        window.get_keys().iter().for_each(|key|
-            match key {
-                Key::Key1 => keycode = Some(0x1),
-                Key::Key2 => keycode = Some(0x2),
-                Key::Key3 => keycode = Some(0x3),
-                Key::Key4 => keycode = Some(0xC),
-                Key::Q => keycode = Some(0x4),
-                Key::W => keycode = Some(0x5),
-                Key::E => keycode = Some(0x6),
-                Key::R => keycode = Some(0xD),
-                Key::A => keycode = Some(0x7),
-                Key::S => keycode = Some(0x8),
-                Key::D => keycode = Some(0x9),
-                Key::F => keycode = Some(0xD),
-                Key::Z => keycode = Some(0xA),
-                Key::X => keycode = Some(0x0),
-                Key::C => keycode = Some(0xB),
-                Key::V => keycode = Some(0xF),
-                _ => (),
-            },
-        );
-        return keycode;
+    fn get_depressed_key(&mut self, event_pump: &mut EventPump) -> Option<u8> {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::KeyDown{ keycode: Some(Keycode::Num1), repeat: false, .. } => { return Some(0x1); },
+                Event::KeyDown{ keycode: Some(Keycode::Num2), repeat: false, .. } => { return Some(0x2); },
+                Event::KeyDown{ keycode: Some(Keycode::Num3), repeat: false, .. } => { return Some(0x3); },
+                Event::KeyDown{ keycode: Some(Keycode::Num4), repeat: false, .. } => { return Some(0xC); },
+                Event::KeyDown{ keycode: Some(Keycode::Q), repeat: false, .. } => { return Some(0x4); },
+                Event::KeyDown{ keycode: Some(Keycode::W), repeat: false, .. } => { return Some(0x5); },
+                Event::KeyDown{ keycode: Some(Keycode::E), repeat: false, .. } => { return Some(0x6); },
+                Event::KeyDown{ keycode: Some(Keycode::R), repeat: false, .. } => { return Some(0xD); },
+                Event::KeyDown{ keycode: Some(Keycode::A), repeat: false, .. } => { return Some(0x7); },
+                Event::KeyDown{ keycode: Some(Keycode::S), repeat: false, .. } => { return Some(0x8); },
+                Event::KeyDown{ keycode: Some(Keycode::D), repeat: false, .. } => { return Some(0x9); },
+                Event::KeyDown{ keycode: Some(Keycode::F), repeat: false, .. } => { return Some(0xE); },
+                Event::KeyDown{ keycode: Some(Keycode::Z), repeat: false, .. } => { return Some(0xA); },
+                Event::KeyDown{ keycode: Some(Keycode::X), repeat: false, .. } => { return Some(0x0); },
+                Event::KeyDown{ keycode: Some(Keycode::C), repeat: false, .. } => { return Some(0xB); },
+                Event::KeyDown{ keycode: Some(Keycode::V), repeat: false, .. } => { return Some(0xF); },
+                _ => { return None; }
+            }
+        }
+        return None;
     }
 
     /// Generates a random u8, bitwise ands it with kk and then stores it in Vx.
@@ -355,11 +367,24 @@ impl CPU {
 
     /// Displays a sprite found in memory at the index register.
     /// The sprite is n rows tall and is displayed at (Vx, Vy).
-    fn display(&mut self, x: u8, y: u8, n: u8, window: &mut Window, buffer: &mut Vec<u32>) {
+    fn display(&mut self, x: u8, y: u8, n: u8, canvas: &mut Canvas<Window>) {
         // Gets the coordinates to display the sprite.
         let mut xp = self.registers[x as usize];
         let mut yp = self.registers[y as usize];
         self.registers[0xF] = 0;
+
+        // Gets the current pixels on the screen, this is because displaying new pixels requires
+        // knowing what is currently at that point.
+        let mut pixels = canvas.read_pixels(canvas.viewport(), sdl2::pixels::PixelFormatEnum::RGB24).unwrap();
+
+        // Turns the pixels from complicated RBG numbers into simple on/off.
+        pixels = pixels.into_iter()
+            .map(|pixel| match pixel {
+                0 => 0 as u8,
+                _ => 1 as u8,
+            }).collect::<Vec<u8>>();
+
+        let pixels = pixels.as_slice().chunks(64).collect::<Vec<&[u8]>>();
 
         // Progressivley display each row, starting at the top.
         'rows: for row in 0..n {
@@ -385,12 +410,14 @@ impl CPU {
                     // Matches if the bit we want is 1.
                     1|2|4|8|16|32|64|128 =>
                     // If it the pixel is on, turn it off.
-                    if buffer[(yp * WIDTH as u8 + xp) as usize] == 1 {
-                        buffer[yp as usize * WIDTH + xp as usize] = 0;
+                    if pixels[yp as usize][xp as usize] == 1 {
+                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+                        canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
                         self.registers[0xF] = 1;
                     // Else if it is off then turn it on.
-                    } else if buffer[(yp * WIDTH as u8 + xp) as usize] == 0 {
-                        buffer[yp as usize * WIDTH + xp as usize] = u32::MAX;
+                    } else if pixels[yp as usize][xp as usize] == 0 {
+                        canvas.set_draw_color(Color::RGB(255, 255, 255));
+                        canvas.draw_point(Point::new(xp as i32, yp as i32)).unwrap();
                     },
                     // Do nothing if the bit is 0.
                     _ => (),
@@ -403,7 +430,7 @@ impl CPU {
             yp += 1;
         }
         // Displays the canvas.
-        window.update_with_buffer(buffer, WIDTH, HEIGHT).unwrap();
+        canvas.present();
     }
 
     /// Set the index register to nnn.
@@ -455,8 +482,8 @@ impl CPU {
     }
 
     /// Clears the screen.
-    fn clear(&mut self, window: &mut Window) {
-        window.update_with_buffer(&[0u32; WIDTH * HEIGHT], WIDTH, HEIGHT).unwrap();
+    fn clear(&mut self, canvas: &mut Canvas<Window>) {
+        canvas.clear();
     }
 
     /// Sets the PC to nnn.
